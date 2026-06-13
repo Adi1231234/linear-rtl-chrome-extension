@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Linear RTL",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Displays right-to-left languages correctly across all of Linear. A line with more than one RTL word becomes RTL.",
   "icons": {
     "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
