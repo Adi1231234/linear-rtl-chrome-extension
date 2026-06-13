@@ -7,9 +7,11 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "esbuild src/main.ts --bundle --format=iife --target=chrome120 --outfile=dist/content.js",
-    "watch": "npm run build -- --watch"
+    "watch": "npm run build -- --watch",
+    "package": "npm run build && node scripts/package.mjs"
   },
   "devDependencies": {
+    "archiver": "^7.0.1",
     "esbuild": "^0.28.1",
     "typescript": "^5.6.3"
   }
