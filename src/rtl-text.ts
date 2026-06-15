@@ -15,6 +15,19 @@ const RTL = new RegExp(
 
 export const hasRtl = (text: string): boolean => RTL.test(text);
 
+// A strong left-to-right letter (Latin and its common extensions). Built as a range so the matcher
+// stays data-driven; digits, punctuation and symbols are neutral and deliberately excluded.
+const LTR = /[A-Za-zÀ-ʯ]/;
+
+/** Direction of the first strong-directional character, skipping neutrals. Null if none. */
+const firstStrongDir = (text: string): "rtl" | "ltr" | null => {
+  for (const ch of text) {
+    if (RTL.test(ch)) return "rtl";
+    if (LTR.test(ch)) return "ltr";
+  }
+  return null;
+};
+
 /** Count whitespace-delimited tokens that contain an RTL character. Stops early at 2. */
 export const rtlWordCount = (text: string): number => {
   let count = 0;
@@ -24,5 +37,10 @@ export const rtlWordCount = (text: string): number => {
   return count;
 };
 
-/** The rule for turning a line RTL: more than one RTL word. */
-export const isRtlLine = (text: string): boolean => rtlWordCount(text) > 1;
+/**
+ * The rule for turning a line RTL: it reads right-to-left when its first strong-directional
+ * character is RTL (a Hebrew-led line, even one whose other words are English technical terms), or
+ * when it simply contains more than one RTL word (so an English-led, mostly-Hebrew line still flips).
+ */
+export const isRtlLine = (text: string): boolean =>
+  firstStrongDir(text) === "rtl" || rtlWordCount(text) > 1;

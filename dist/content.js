@@ -18,6 +18,14 @@
     `[${RTL_RANGES.map(([lo, hi]) => `${String.fromCharCode(lo)}-${String.fromCharCode(hi)}`).join("")}]`
   );
   var hasRtl = (text) => RTL.test(text);
+  var LTR = /[A-Za-zÀ-ʯ]/;
+  var firstStrongDir = (text) => {
+    for (const ch of text) {
+      if (RTL.test(ch)) return "rtl";
+      if (LTR.test(ch)) return "ltr";
+    }
+    return null;
+  };
   var rtlWordCount = (text) => {
     let count = 0;
     for (const token of text.split(/\s+/)) {
@@ -25,7 +33,7 @@
     }
     return count;
   };
-  var isRtlLine = (text) => rtlWordCount(text) > 1;
+  var isRtlLine = (text) => firstStrongDir(text) === "rtl" || rtlWordCount(text) > 1;
 
   // src/layout.ts
   var SKIP_TAGS = /* @__PURE__ */ new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "CODE", "PRE", "NOSCRIPT"]);
