@@ -1,51 +1,26 @@
 // Direction control - applies/reverts text direction for a single element. Owns per-element state.
 import { isRtlLine } from "./rtl-text";
-import { boardCard, isBlock, isInlineRef, listMasterGrid } from "./layout";
+import { isInlineRef } from "./layout";
+import { linePlacement, type Placement } from "./placement";
+import { inlineRefPlacement } from "./inline-ref/placement";
+import { isEditorContent } from "./editor/root";
 
-type Direction = "rtl" | "ltr";
-
-const lastDirection = new WeakMap<HTMLElement, Direction>();
-const flippedCard = new WeakMap<HTMLElement, HTMLElement>();
-
-/** Right-align the element's line for the layout it lives in. */
-const align = (el: HTMLElement): void => {
-  if (isBlock(el)) el.style.textAlign = "right";
-
-  const card = boardCard(el);
-  if (card && card !== el && !card.isContentEditable && card.getAttribute("dir") !== "rtl") {
-    card.setAttribute("dir", "rtl");
-    flippedCard.set(el, card);
-    return;
-  }
-  if (!card) {
-    const grid = listMasterGrid(el);
-    if (grid && grid.style.direction !== "rtl") grid.style.direction = "rtl";
-  }
-};
-
-const unalign = (el: HTMLElement): void => {
-  el.style.textAlign = "";
-  const card = flippedCard.get(el);
-  if (card) {
-    card.removeAttribute("dir");
-    flippedCard.delete(el);
-  }
-};
+/** Elements this extension turned RTL, with the placement that was applied to them. */
+const flipped = new WeakMap<HTMLElement, Placement>();
 
 /** Decide and apply direction for one element that directly holds text. Idempotent, self-healing. */
 export const updateDirection = (el: Element): void => {
-  if (!(el instanceof HTMLElement) || el.isContentEditable) return; // editors handled by CSS
-  if (isInlineRef(el)) return; // breadcrumbs / inline mentions read RTL via bidi already
-  const previous = lastDirection.get(el);
+  if (!(el instanceof HTMLElement) || isEditorContent(el)) return; // editors: see editor/
+  const placement = flipped.get(el) ?? (isInlineRef(el) ? inlineRefPlacement : linePlacement);
 
-  if (isRtlLine(el.textContent ?? "")) {
-    if (previous === "rtl" && el.getAttribute("dir") === "rtl") return; // re-apply only if stripped
+  if (isRtlLine(placement.text(el))) {
+    if (flipped.has(el) && el.getAttribute("dir") === "rtl") return; // re-apply only if stripped
     el.setAttribute("dir", "rtl");
-    align(el);
-    lastDirection.set(el, "rtl");
-  } else if (previous === "rtl") {
+    placement.apply(el);
+    flipped.set(el, placement);
+  } else if (flipped.has(el)) {
     el.removeAttribute("dir");
-    unalign(el);
-    lastDirection.set(el, "ltr");
+    placement.revert(el);
+    flipped.delete(el);
   }
 };

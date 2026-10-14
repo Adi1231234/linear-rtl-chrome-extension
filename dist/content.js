@@ -1,12 +1,28 @@
 "use strict";
 (() => {
-  // src/editor-css.ts
-  var SELECTOR = ":is([contenteditable],.ProseMirror) :is(.text-node,p,div,li,h1,h2,h3,h4,blockquote)";
-  var injectEditorCss = () => {
-    const style = document.createElement("style");
-    style.textContent = `${SELECTOR}{unicode-bidi:plaintext;text-align:start;}`;
-    (document.head ?? document.documentElement).appendChild(style);
+  // src/editor/rules.ts
+  var LINES = ":is([contenteditable],.ProseMirror) :is(.text-node,p,div,li,h1,h2,h3,h4,blockquote)";
+  var BASE_CSS = `${LINES}{unicode-bidi:plaintext;text-align:start;}`;
+  var MIRROR = [
+    ":is(ul){padding-left:0;padding-right:var(--editor-list-inset)}",
+    ":is(ul:not([data-type=todo_list]))>li::before{left:auto;right:calc((-1 * var(--editor-list-inset)) + (var(--editor-bullet-disc-offset) / 2))}",
+    ":is([data-type=todo_list])>li>.todo-checkbox-container{left:auto;right:calc(-1 * var(--editor-list-inset));flex-direction:row-reverse}",
+    ":is(ol){grid-template-columns:1fr max-content}",
+    ":is(ol)>li>*{grid-column:1/2}",
+    ":is(ol)>li::before{grid-column:2/3;grid-row:1;direction:rtl;transform:translate(0.55em)}",
+    ":is(blockquote){padding-left:0;padding-right:var(--editor-block-spacing)}",
+    ":is(blockquote)::before{left:auto;right:0}"
+  ];
+  var RULES = {
+    rtlLines: ["{direction:rtl;unicode-bidi:isolate}"],
+    rtlContainers: MIRROR,
+    alignRight: ["{text-align:right}"],
+    alignLeft: ["{text-align:left}"]
   };
+  var editorCss = (blocks, selectorOf) => Object.keys(RULES).filter((kind) => blocks[kind].length).map((kind) => {
+    const matched = `:is(${blocks[kind].map(selectorOf).join(",")})`;
+    return RULES[kind].map((rule) => matched + rule).join("");
+  }).join("");
 
   // src/rtl-text.ts
   var RTL_RANGES = [
@@ -34,6 +50,103 @@
     return count;
   };
   var isRtlLine = (text) => firstStrongDir(text) === "rtl" || rtlWordCount(text) > 1;
+  var lineDirection = (text) => isRtlLine(text) ? "rtl" : firstStrongDir(text);
+
+  // src/editor/decide.ts
+  var LINES2 = "p, h1, h2, h3, h4, h5, h6";
+  var CONTAINERS = "ol, ul, blockquote";
+  var majority = (dirs) => {
+    const rtl = dirs.filter((d) => d === "rtl").length;
+    const ltr = dirs.filter((d) => d === "ltr").length;
+    if (rtl !== ltr) return rtl > ltr ? "rtl" : "ltr";
+    return dirs.find((d) => d !== null) ?? null;
+  };
+  var editorBlocks = (root) => {
+    const holderOf = (el) => {
+      const container = el.parentElement?.closest(CONTAINERS);
+      return container && root.contains(container) ? container : root;
+    };
+    const lines = [...root.querySelectorAll(LINES2)];
+    const own = new Map(lines.map((line) => [line, lineDirection(line.textContent ?? "")]));
+    const holder = new Map(lines.map((line) => [line, holderOf(line)]));
+    const directLines = /* @__PURE__ */ new Map();
+    for (const [line, held] of holder) {
+      const group = directLines.get(held);
+      if (group) group.push(line);
+      else directLines.set(held, [line]);
+    }
+    const dirsOf = (els) => [...els].map((el) => own.get(el) ?? null);
+    const resolved = /* @__PURE__ */ new Map([[root, majority([...own.values()])]]);
+    for (const container of root.querySelectorAll(CONTAINERS)) {
+      const dir = majority(dirsOf(directLines.get(container) ?? [])) ?? majority(dirsOf(container.querySelectorAll(LINES2))) ?? resolved.get(holderOf(container)) ?? null;
+      resolved.set(container, dir);
+    }
+    const holderDir = (line) => resolved.get(holder.get(line) ?? root) ?? null;
+    const lineDir = (line) => own.get(line) ?? holderDir(line);
+    const sideOf = (line) => holder.get(line) === root ? lineDir(line) : holderDir(line);
+    const misaligned = (side) => lines.filter((line) => sideOf(line) === side && lineDir(line) !== side);
+    return {
+      rtlLines: lines.filter((line) => lineDir(line) === "rtl"),
+      rtlContainers: [...resolved].filter(([container, dir]) => container !== root && dir === "rtl").map(([container]) => container),
+      alignRight: misaligned("rtl"),
+      alignLeft: misaligned("ltr")
+    };
+  };
+
+  // src/editor/root.ts
+  var EDITOR_ROOT = ".ProseMirror";
+  var ROOT_ATTR = "data-rtl-editor";
+  var nextId = 0;
+  var isEditorContent = (el) => el.isContentEditable || el.closest(EDITOR_ROOT) !== null;
+  var editorRootOf = (node) => (node instanceof Element ? node : node.parentElement)?.closest(EDITOR_ROOT) ?? null;
+  var editorRootsIn = (node) => {
+    if (!(node instanceof Element)) return [];
+    const roots = [...node.querySelectorAll(EDITOR_ROOT)];
+    return node.matches(EDITOR_ROOT) ? [node, ...roots] : roots;
+  };
+  var rootSelector = (root) => {
+    if (!root.hasAttribute(ROOT_ATTR)) root.setAttribute(ROOT_ATTR, String(++nextId));
+    return `${EDITOR_ROOT}[${ROOT_ATTR}="${root.getAttribute(ROOT_ATTR)}"]`;
+  };
+  var pathSelectors = (root) => {
+    const positions = /* @__PURE__ */ new Map();
+    const position = (node, parent) => {
+      if (!positions.has(node)) [...parent.children].forEach((child, i) => positions.set(child, i + 1));
+      return positions.get(node) ?? 0;
+    };
+    return (el) => {
+      let path = "";
+      for (let node = el; node !== root && node.parentElement; node = node.parentElement) {
+        path = `>:nth-child(${position(node, node.parentElement)})${path}`;
+      }
+      return rootSelector(root) + path;
+    };
+  };
+
+  // src/editor/sheet.ts
+  var perEditor = /* @__PURE__ */ new Map();
+  var style = null;
+  var current = "";
+  var render = () => {
+    for (const root of perEditor.keys()) if (!root.isConnected) perEditor.delete(root);
+    const css = BASE_CSS + [...perEditor.values()].join("");
+    if (style && css !== current) style.textContent = current = css;
+  };
+  var cssFor = (root) => editorCss(editorBlocks(root), pathSelectors(root));
+  var installEditorSheet = () => {
+    style = document.createElement("style");
+    style.textContent = current = BASE_CSS;
+    (document.head ?? document.documentElement).appendChild(style);
+  };
+  var refreshEditors = (roots) => {
+    for (const root of roots) if (root.isConnected) perEditor.set(root, cssFor(root));
+    render();
+  };
+  var refreshEditorsIn = (node) => {
+    const roots = editorRootsIn(node);
+    if (roots.length) refreshEditors(roots);
+  };
+  var refreshAllEditors = () => refreshEditors(editorRootsIn(document.body));
 
   // src/layout.ts
   var SKIP_TAGS = /* @__PURE__ */ new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "CODE", "PRE", "NOSCRIPT"]);
@@ -67,43 +180,77 @@
     return link.getBoundingClientRect().height <= 56;
   };
 
-  // src/direction.ts
-  var lastDirection = /* @__PURE__ */ new WeakMap();
+  // src/placement.ts
   var flippedCard = /* @__PURE__ */ new WeakMap();
-  var align = (el) => {
-    if (isBlock(el)) el.style.textAlign = "right";
-    const card = boardCard(el);
-    if (card && card !== el && !card.isContentEditable && card.getAttribute("dir") !== "rtl") {
-      card.setAttribute("dir", "rtl");
-      flippedCard.set(el, card);
-      return;
-    }
-    if (!card) {
-      const grid = listMasterGrid(el);
-      if (grid && grid.style.direction !== "rtl") grid.style.direction = "rtl";
+  var linePlacement = {
+    text: (el) => el.textContent ?? "",
+    apply: (el) => {
+      if (isBlock(el)) el.style.textAlign = "right";
+      const card = boardCard(el);
+      if (card && card !== el && !card.isContentEditable && card.getAttribute("dir") !== "rtl") {
+        card.setAttribute("dir", "rtl");
+        flippedCard.set(el, card);
+        return;
+      }
+      if (!card) {
+        const grid = listMasterGrid(el);
+        if (grid && grid.style.direction !== "rtl") grid.style.direction = "rtl";
+      }
+    },
+    revert: (el) => {
+      el.style.textAlign = "";
+      const card = flippedCard.get(el);
+      if (card) {
+        card.removeAttribute("dir");
+        flippedCard.delete(el);
+      }
     }
   };
-  var unalign = (el) => {
-    el.style.textAlign = "";
-    const card = flippedCard.get(el);
-    if (card) {
-      card.removeAttribute("dir");
-      flippedCard.delete(el);
+
+  // src/inline-ref/placement.ts
+  var floated = /* @__PURE__ */ new WeakMap();
+  var leadingBadges = (el) => {
+    const badges = [];
+    for (const node of el.childNodes) {
+      if (node instanceof HTMLElement) badges.push(node);
+      else if (node.nodeType === Node.TEXT_NODE && node.nodeValue?.trim()) break;
+    }
+    return badges;
+  };
+  var title = (el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const badge = leadingBadges(el).at(-1);
+    if (badge) range.setStartAfter(badge);
+    return range.toString();
+  };
+  var inlineRefPlacement = {
+    text: title,
+    apply: (el) => {
+      const badges = leadingBadges(el);
+      for (const badge of badges) badge.style.float = "left";
+      floated.set(el, badges);
+    },
+    revert: (el) => {
+      for (const badge of floated.get(el) ?? []) badge.style.float = "";
+      floated.delete(el);
     }
   };
+
+  // src/direction.ts
+  var flipped = /* @__PURE__ */ new WeakMap();
   var updateDirection = (el) => {
-    if (!(el instanceof HTMLElement) || el.isContentEditable) return;
-    if (isInlineRef(el)) return;
-    const previous = lastDirection.get(el);
-    if (isRtlLine(el.textContent ?? "")) {
-      if (previous === "rtl" && el.getAttribute("dir") === "rtl") return;
+    if (!(el instanceof HTMLElement) || isEditorContent(el)) return;
+    const placement = flipped.get(el) ?? (isInlineRef(el) ? inlineRefPlacement : linePlacement);
+    if (isRtlLine(placement.text(el))) {
+      if (flipped.has(el) && el.getAttribute("dir") === "rtl") return;
       el.setAttribute("dir", "rtl");
-      align(el);
-      lastDirection.set(el, "rtl");
-    } else if (previous === "rtl") {
+      placement.apply(el);
+      flipped.set(el, placement);
+    } else if (flipped.has(el)) {
       el.removeAttribute("dir");
-      unalign(el);
-      lastDirection.set(el, "ltr");
+      placement.revert(el);
+      flipped.delete(el);
     }
   };
 
@@ -142,7 +289,10 @@
       if (!item.isConnected) continue;
       try {
         if (item.nodeType === Node.TEXT_NODE) processTextNode(item);
-        else scan(item);
+        else {
+          scan(item);
+          refreshEditorsIn(item);
+        }
       } catch {
       }
     }
@@ -156,10 +306,14 @@
   };
   var watch = (target) => {
     new MutationObserver((mutations) => {
+      const editors = /* @__PURE__ */ new Set();
       for (const mutation of mutations) {
-        if (mutation.type === "characterData") schedule(mutation.target);
+        const editor = editorRootOf(mutation.target);
+        if (editor) editors.add(editor);
+        else if (mutation.type === "characterData") schedule(mutation.target);
         else if (mutation.type === "childList") mutation.addedNodes.forEach(schedule);
       }
+      if (editors.size) refreshEditors(editors);
     }).observe(target, { subtree: true, childList: true, characterData: true });
   };
   var startSafetyRescan = (intervalMs) => {
@@ -167,6 +321,7 @@
       if (document.hidden) return;
       try {
         scan(document.body);
+        refreshAllEditors();
       } catch {
       }
     }, intervalMs);
@@ -175,8 +330,9 @@
   // src/main.ts
   var SAFETY_RESCAN_MS = 2e3;
   var start = () => {
-    injectEditorCss();
+    installEditorSheet();
     scan(document.body);
+    refreshAllEditors();
     watch(document.body);
     startSafetyRescan(SAFETY_RESCAN_MS);
   };

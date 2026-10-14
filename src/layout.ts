@@ -37,8 +37,7 @@ export const listMasterGrid = (el: Element): HTMLElement | null => {
 
 /**
  * A small inline issue/project reference (breadcrumb, mention) - not a board card or grid row.
- * The browser's bidi already orders its text right-to-left; flipping it only reorders the id and
- * title and collapses their spacing, so these are left untouched.
+ * Flipping it like a line would move its id badge to the other side; see inline-ref/.
  */
 export const isInlineRef = (el: Element): boolean => {
   const link = el.closest<HTMLElement>(`${ISSUE_LINK}, a[href*="/project/"]`);
