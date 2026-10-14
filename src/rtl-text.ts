@@ -1,5 +1,7 @@
 // Right-to-left text detection - pure, reusable, no DOM.
 
+export type Direction = "rtl" | "ltr";
+
 // RTL Unicode blocks (every right-to-left script) plus their presentation forms, as code-point
 // ranges. The matcher is built at runtime from numbers, so no script is named and no RTL glyph
 // ever appears in the source.
@@ -20,7 +22,7 @@ export const hasRtl = (text: string): boolean => RTL.test(text);
 const LTR = /[A-Za-zÀ-ʯ]/;
 
 /** Direction of the first strong-directional character, skipping neutrals. Null if none. */
-const firstStrongDir = (text: string): "rtl" | "ltr" | null => {
+const firstStrongDir = (text: string): Direction | null => {
   for (const ch of text) {
     if (RTL.test(ch)) return "rtl";
     if (LTR.test(ch)) return "ltr";
@@ -44,3 +46,7 @@ export const rtlWordCount = (text: string): number => {
  */
 export const isRtlLine = (text: string): boolean =>
   firstStrongDir(text) === "rtl" || rtlWordCount(text) > 1;
+
+/** The line's direction by `isRtlLine`; null when it has no strong-directional letter at all. */
+export const lineDirection = (text: string): Direction | null =>
+  isRtlLine(text) ? "rtl" : firstStrongDir(text);

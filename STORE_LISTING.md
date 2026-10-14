@@ -27,7 +27,8 @@ files (`manifest.json`, `dist/content.js`, `icons/`). Upload that ZIP. **(you)**
   - Works across the whole app: board, list and saved views, issue view, the command palette,
     inbox and search.
   - Right-aligns titles where it fits and mirrors list rows without breaking the layout.
-  - Handles rich-text editors (title, description, comments) as you type.
+  - Handles rich-text editors (title, description, comments) as you type, with numbered lists,
+    bullets, checklists and quotes mirrored to the right.
   - Picks up dynamic content automatically while you scroll and navigate.
   - No configuration, no account, no data collection.
 
